@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Three-Blocks Layout Tool</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
+  <style>
+    :root{ --ui-w: 280px; }
+    html, body { height:100%; margin:0; font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; }
+    body { display:flex; background:#e0e0e0; color:#111; }
+    #ui { width:var(--ui-w); padding:18px 16px; background:#f7f7f7; box-shadow: inset -1px 0 0 rgba(0,0,0,.08); display:flex; flex-direction:column; gap:14px; }
+    #ui h1{ font-size:18px; margin:0 0 8px; }
+    #ui .small{ font-size:12px; color:#555; }
+    #ui label{ display:block; font-size:12px; color:#333; margin-bottom:6px; }
+    #ui select, #ui button{ width:100%; padding:10px 12px; border-radius:10px; border:1px solid #d0d0d0; background:#fff; font-size:14px; cursor:pointer; }
+    #ui button.primary{ background:#111; color:#fff; border-color:#111; }
+    #ui .pill{ padding:6px 10px; display:inline-block; font-size:12px; background:#fff; border:1px solid #d0d0d0; border-radius:999px; }
+    #canvas-holder{ flex:1; display:flex; align-items:center; justify-content:center; }
+    canvas{ outline:none; border-radius:12px; box-shadow: 0 10px 30px rgba(0,0,0,.18); }
+  </style>
+</head>
+<body>
+  <aside id="ui">
+    <h1>Three-Blocks Layout Tool</h1>
+    <div class="small">Drag anywhere on the artboard to move the shared control point. The layout stays fixed; only split positions move.</div>
+
+    <div>
+      <label for="layoutSel">Layout (16:9)</label>
+      <select id="layoutSel">
+        <option value="A">A — Left block full height; right split top/bottom</option>
+        <option value="B">B — Right block full height; left split top/bottom</option>
+        <option value="C">C — Top block full width; bottom split left/right</option>
+        <option value="D">D — Bottom block full width; top split left/right</option>
+      </select>
+    </div>
+
+    <div>
+      <label>Color order</label>
+      <div id="orderPill" class="pill">Green → Pink → White</div>
+      <div style="height:8px"></div>
+      <button id="cycleBtn">Cycle Colors</button>
+    </div>
+
+    <div>
+      <label>Actions</label>
+      <button id="exportBtn" class="primary">Export PNG (1920×1080)</button>
+    </div>
+
+    <div class="small">Colors: Green #9BFFA0 • Pink #FF99FF • White #FFFFFF</div>
+  </aside>
+  <div id="canvas-holder"></div>
+
+  <script>
+    const UI_W = 280;
+    const BG = '#d6d6d6';
+    const COLORS = ['#9BFFA0', '#FF99FF', '#FFFFFF'];
+
+    let splitX = 0.34;
+    let splitY = 0.52;
+    let subSplit = 0.66;
+
+    let order = [0,1,2];
+    let layout = 'A';
+
+    let cnv, pg;
+    let artRect = {x:0, y:0, w:0, h:0};
+
+    let dragging = false;
+
+    function setup(){
+      const holder = document.getElementById('canvas-holder');
+      const W = Math.max(980, window.innerWidth - UI_W - 24);
+      const H = Math.max(560, window.innerHeight - 24);
+      cnv = createCanvas(W, H);
+      cnv.parent(holder);
+      pixelDensity(1);
+
+      pg = createGraphics(1920, 1080);
+      pg.pixelDensity(1);
+
+      const layoutSel = document.getElementById('layoutSel');
+      layoutSel.addEventListener('change', e=>{ layout = e.target.value; loop(); });
+      document.getElementById('cycleBtn').addEventListener('click', ()=>{
+        order.push(order.shift());
+        updateOrderPill();
+      });
+      document.getElementById('exportBtn').addEventListener('click', exportPNG);
+      updateOrderPill();
+      noLoop();
+    }
+
+    function windowResized(){
+      const holder = document.getElementById('canvas-holder');
+      const W = Math.max(980, window.innerWidth - UI_W - 24);
+      const H = Math.max(560, window.innerHeight - 24);
+      resizeCanvas(W, H);
+      loop();
+    }
+
+    function draw(){
+      background(BG);
+
+      const pad = 24;
+      const availW = width - pad*2;
+      const availH = height - pad*2;
+      const targetRatio = 16/9;
+      let w = availW, h = Math.round(availW/targetRatio);
+      if(h > availH){ h = availH; w = Math.round(availH*targetRatio); }
+      const x = Math.round((width - w)/2);
+      const y = Math.round((height - h)/2);
+      artRect = {x, y, w, h};
+
+      drawThreeBlocks(pg, layout, order, splitX, splitY, subSplit);
+      image(pg, x, y, w, h);
+
+      push();
+      noFill(); stroke(20,20,20,130); strokeWeight(2);
+      rect(x, y, w, h);
+      pop();
+
+      noLoop();
+    }
+
+    function drawThreeBlocks(g, layout, order, splitX, splitY, subSplit){
+      g.clear();
+      g.noStroke();
+
+      const W = g.width, H = g.height;
+      const sx = constrain(splitX, 0.08, 0.92);
+      const sy = constrain(splitY, 0.08, 0.92);
+      const ss = constrain(subSplit, 0.08, 0.92);
+
+      const fillIdx = (i)=>{ g.fill(COLORS[order[i]]); };
+
+      if(layout === 'A'){
+        fillIdx(0); g.rect(0, 0, sx*W, H);
+        fillIdx(1); g.rect(sx*W, 0, (1-sx)*W, sy*H);
+        fillIdx(2); g.rect(sx*W, sy*H, (1-sx)*W, (1-sy)*H);
+      }
+      else if(layout === 'B'){
+        fillIdx(0); g.rect(sx*W, 0, (1-sx)*W, H);
+        fillIdx(1); g.rect(0, 0, sx*W, sy*H);
+        fillIdx(2); g.rect(0, sy*H, sx*W, (1-sy)*H);
+      }
+      else if(layout === 'C'){
+        fillIdx(0); g.rect(0, 0, W, sy*H);
+        fillIdx(1); g.rect(0, sy*H, ss*W, (1-sy)*H);
+        fillIdx(2); g.rect(ss*W, sy*H, (1-ss)*W, (1-sy)*H);
+      }
+      else if(layout === 'D'){
+        fillIdx(0); g.rect(0, sy*H, W, (1-sy)*H);
+        fillIdx(1); g.rect(0, 0, ss*W, sy*H);
+        fillIdx(2); g.rect(ss*W, 0, (1-ss)*W, sy*H);
+      }
+    }
+
+    function mousePressed(){
+      if(mouseX < artRect.x || mouseX > artRect.x + artRect.w || mouseY < artRect.y || mouseY > artRect.y + artRect.h) return;
+      dragging = true;
+      applyDrag(mouseX, mouseY);
+      loop();
+    }
+
+    function mouseDragged(){
+      if(!dragging) return;
+      applyDrag(mouseX, mouseY);
+      loop();
+    }
+
+    function mouseReleased(){ dragging = false; }
+
+    function applyDrag(mx, my){
+      const u = constrain((mx - artRect.x) / artRect.w, 0.02, 0.98);
+      const v = constrain((my - artRect.y) / artRect.h, 0.02, 0.98);
+      if(layout==='A' || layout==='B'){
+        splitX = clamp01(u, 0.08, 0.92);
+        splitY = clamp01(v, 0.08, 0.92);
+      } else {
+        subSplit = clamp01(u, 0.08, 0.92);
+        splitY  = clamp01(v, 0.08, 0.92);
+      }
+    }
+
+    function clamp01(value, min, max){ return Math.max(min, Math.min(max, value)); }
+
+    function exportPNG(){
+      drawThreeBlocks(pg, layout, order, splitX, splitY, subSplit);
+      saveCanvas(pg.canvas, 'three-blocks-1920x1080', 'png');
+    }
+
+    function updateOrderPill(){
+      const names = ['Green', 'Pink', 'White'];
+      const s = `${names[order[0]]} → ${names[order[1]]} → ${names[order[2]]}`;
+      document.getElementById('orderPill').textContent = s;
+      loop();
+    }
+  </script>
+</body>
+</html>
